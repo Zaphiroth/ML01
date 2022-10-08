@@ -47,6 +47,8 @@ suppressPackageStartupMessages({
   library(rpart)
   # RF
   library(randomForest)
+  # plot
+  library(isotone)
 })
 ```
 
@@ -354,7 +356,7 @@ mse.flex <- data.frame(flexibility = c(length(fresh.arima.fit$coef),
                                 fresh.glm.test.mse))
 mse.flex
 
-plot(0: 8, seq(0, 8000, 1000), type = 'n')
+plot(0: 8, seq(0, 8000, 1000), type = 'n', xlab = 'Flexibility', ylab = 'MSE')
 points(x = mse.flex$flexibility, y = mse.flex$train, type = 'p', pch = 4)
 lines(x = mse.flex$flexibility, y = mse.flex$train, col = 2)
 points(x = mse.flex$flexibility, y = mse.flex$test, type = 'p', pch = 4)
@@ -362,22 +364,310 @@ lines(x = mse.flex$flexibility, y = mse.flex$test, col = 4)
 legend('right', c('train', 'test'), col = c(2, 4), lty=c(1, 1), bty="n")
 ```
 
-因为测试数据与训练数据差别过于巨大，导致残差自回归模型和线性回归模型在测试集数据上的表现极差；虽然ARIMA模型柔性最低，训练误差最大，但在测试数据上有最好的表现。
+由于测试数据与训练数据差别过于巨大，导致残差自回归模型和广义线性回归模型在测试集数据上的表现极差；虽然ARIMA模型柔性最低，训练误差最大，但在测试数据上有最好的表现。
 
 ## Ink
 
+# 读取数据
 
+将数据集分为训练数据（瓶装）、训练数据（简装）和测试数据三部分，添加类别标签。
 
+```{r}
+ink.raw <- read_table('inks5_CLASSdataset.txt', show_col_types = FALSE)
 
+head(ink.raw)
+```
 
+```{r}
+ink.train1 <- ink.raw %>% 
+  filter(Itemtype == 'TRAIN', stri_sub(Name, -2, -1) != '.1') %>% 
+  mutate(label = as.factor(stri_sub(Name, -1, -1)))
 
+head(ink.train1)
+```
 
+```{r}
+ink.train2 <- ink.raw %>% 
+  filter(Itemtype == 'TRAIN', stri_sub(Name, -2, -1) == '.1') %>% 
+  mutate(label = as.factor(stri_sub(Name, -3, -3)))
 
+head(ink.train2)
+```
 
+```{r}
+ink.test <- ink.raw %>% 
+  filter(Itemtype == 'TEST') %>% 
+  mutate(label = as.factor(stri_sub(Name, -1, -1)))
 
+head(ink.test)
+```
 
+# 模型选择
 
+经过对逻辑回归、决策树、随机森林等分类模型的计算和比较，选择训练效果和预测效果最好的随机森林分类模型。
 
+随机森林分类模型中有两个主要的超参数：构建决策树分支时抽取的变量个数（mtry）和随机森林中树的数量（ntree）。超参数的设置会在很大程度上影响模型的预测效果。
 
+选择mtry范围为1~3（数据中共有3个变量），ntree范围为100~1000（间隔100），两两组合成30组超参数对，每组训练10个随机森林模型，比较各个模型的错误率。
 
+# 确定训练数据（瓶装）的超参数
 
+首先利用训练数据（瓶装）训练随机森林分类模型，结果显示mtry=1，ntree=100时，模型已经有比较低的训练错误率和测试错误率。
+
+```{r}
+ink.rf1.df <- data.frame(num = rep(1:10, each = 30), 
+                         mtry = rep(1:3, each = 10, times = 10), 
+                         ntree = rep((1:10) * 100, times = 30), 
+                         obb = NA, 
+                         test = NA)
+
+set.seed(1)
+for (i in 1:10) {
+  for (j in 1:3) {
+    for (k in seq(100, 1000, 100)) {
+      rf.fit <- randomForest(
+        label ~ x + y + z, data = ink.train1, 
+        mtry = j, ntree = k, 
+        xtest = ink.test[4:6], ytest = ink.test$label, 
+        importance = TRUE
+      )
+      ink.rf1.df$obb[ink.rf1.df$num == i & ink.rf1.df$mtry == j & ink.rf1.df$ntree == k] <- mean(rf.fit$confusion[, 6])
+      ink.rf1.df$test[ink.rf1.df$num == i & ink.rf1.df$mtry == j & ink.rf1.df$ntree == k] <- mean(rf.fit$test$confusion[, 6])
+    }
+  }
+}
+
+ink.rf1.df %>% arrange(test) %>% head(10)
+```
+
+设置超参数mtry=1，ntree=100训练随机森林分类模型。
+
+```{r}
+set.seed(10)
+ink.rf1.fit <- randomForest(label ~ x + y + z, data = ink.train1, 
+                            mtry = 1, ntree = 100, 
+                            xtest = ink.test[4:6], ytest = ink.test$label, 
+                            importance = TRUE)
+ink.rf1.fit
+```
+
+# 确定训练数据（简装）的超参数
+
+下面利用训练数据（简装）训练随机森林分类模型，结果显示mtry=2，ntree=100时，模型已经有比较低的训练错误率和测试错误率。
+
+```{r}
+ink.rf2.df <- data.frame(num = rep(1:10, each = 30), 
+                         mtry = rep(1:3, each = 10, times = 10), 
+                         ntree = rep((1:10) * 100, times = 30), 
+                         obb = NA, 
+                         test = NA)
+
+set.seed(20)
+for (i in 1:10) {
+  for (j in 1:3) {
+    for (k in seq(100, 1000, 100)) {
+      rf.fit <- randomForest(
+        label ~ x + y + z, data = ink.train2, 
+        mtry = j, ntree = k, 
+        xtest = ink.test[4:6], ytest = ink.test$label, 
+        importance = TRUE
+      )
+      ink.rf2.df$obb[ink.rf2.df$num == i & ink.rf2.df$mtry == j & ink.rf2.df$ntree == k] <- mean(rf.fit$confusion[, 6])
+      ink.rf2.df$test[ink.rf2.df$num == i & ink.rf2.df$mtry == j & ink.rf2.df$ntree == k] <- mean(rf.fit$test$confusion[, 6])
+    }
+  }
+}
+
+ink.rf2.df %>% arrange(test) %>% head(10)
+```
+
+设置超参数mtry=1，ntree=100训练随机森林分类模型。
+
+```{r}
+set.seed(50)
+ink.rf2.fit <- randomForest(label ~ x + y + z, data = ink.train1, 
+                            mtry = 2, ntree = 100, 
+                            xtest = ink.test[4:6], ytest = ink.test$label, 
+                            importance = TRUE)
+ink.rf2.fit
+```
+
+# 单一墨迹误差
+
+利用训练数据（瓶装）训练的随机森林分类模型在测试数据上的正确率优于利用训练数据（简装）训练的随机森林分类模型。下面分析瓶装模型的误差。
+
+模型每一种墨迹的训练误差为
+
+```{r}
+ink.train1.pred <- ink.train1 %>% 
+  mutate(label_pred = ink.rf1.fit$predicted) %>% 
+  group_by(Name) %>% 
+  summarise(error = mean(as.numeric(label) - as.numeric(label_pred))^2) %>% 
+  ungroup()
+
+ink.train1.pred
+```
+
+模型每一种墨迹的测试误差为
+
+```{r}
+ink.test1.pred <- ink.test %>% 
+  mutate(label_pred = ink.rf1.fit$test$predicted) %>% 
+  group_by(Name) %>% 
+  summarise(error = mean(as.numeric(label) - as.numeric(label_pred))^2) %>% 
+  ungroup()
+
+ink.test1.pred
+```
+
+模型每一种墨迹的微训练误差为
+
+```{r}
+ink.train1.label <- ink.train1 %>% 
+  mutate(prop = 1) %>% 
+  pivot_wider(names_from = label, 
+              values_from = prop, 
+              values_fill = 0) %>% 
+  select(`1`, `2`, `3`, `4`, `5`) %>% 
+  as.matrix()
+
+ink.train1.pred.m <- data.frame(Name = sort(unique(ink.train1$Name)), 
+                                error = colMeans((ink.rf1.fit$votes - ink.train1.label)^2))
+
+ink.train1.pred.m
+```
+
+模型每一种墨迹的微测试误差为
+
+```{r}
+ink.test1.label <- ink.test %>% 
+  mutate(prop = 1) %>% 
+  pivot_wider(names_from = label, 
+              values_from = prop, 
+              values_fill = 0) %>% 
+  select(`1`, `2`, `3`, `4`, `5`) %>% 
+  as.matrix()
+
+ink.test1.pred.m <- data.frame(Name = sort(unique(ink.test$Name)), 
+                                error = colMeans((ink.rf1.fit$test$votes - ink.test1.label)^2))
+
+ink.test1.pred.m
+```
+
+模型整体的微训练误差为：
+
+```{r}
+mean((ink.rf1.fit$votes - ink.train1.label)^2)
+```
+
+模型整体的微测试误差为：
+
+```{r}
+mean((ink.rf1.fit$votes - ink.test1.label)^2)
+```
+
+# 四种图
+
+Histogram
+
+```{r}
+source('Histogram.R')
+
+h1 <- ink.rf1.fit$test$votes[1:10, 1]
+h2 <- 1 - ink.rf1.fit$test$votes[1:10, 1]
+histograms(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[21:30, 2]
+h2 <- 1 - ink.rf1.fit$test$votes[21:30, 2]
+histograms(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[41:50, 3]
+h2 <- 1 - ink.rf1.fit$test$votes[41:50, 3]
+histograms(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[31:40, 4]
+h2 <- 1 - ink.rf1.fit$test$votes[31:40, 4]
+histograms(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[11:20, 5]
+h2 <- 1 - ink.rf1.fit$test$votes[41:50, 3]
+histograms(LR.H1.exp = h1, LR.H2.exp = h2)
+```
+
+Tippett
+
+```{r}
+source('Tippett.R')
+
+h1 <- ink.rf1.fit$test$votes[1:10, 1]
+h2 <- 1 - ink.rf1.fit$test$votes[1:10, 1]
+Tippett(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[21:30, 2]
+h2 <- 1 - ink.rf1.fit$test$votes[21:30, 2]
+Tippett(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[41:50, 3]
+h2 <- 1 - ink.rf1.fit$test$votes[41:50, 3]
+Tippett(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[31:40, 4]
+h2 <- 1 - ink.rf1.fit$test$votes[31:40, 4]
+Tippett(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[11:20, 5]
+h2 <- 1 - ink.rf1.fit$test$votes[41:50, 3]
+Tippett(LR.H1.exp = h1, LR.H2.exp = h2)
+```
+
+DET
+
+```{r}
+source('DET.R')
+
+h1 <- ink.rf1.fit$test$votes[1:10, 1]
+h2 <- 1 - ink.rf1.fit$test$votes[1:10, 1]
+DET(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[21:30, 2]
+h2 <- 1 - ink.rf1.fit$test$votes[21:30, 2]
+DET(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[41:50, 3]
+h2 <- 1 - ink.rf1.fit$test$votes[41:50, 3]
+DET(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[31:40, 4]
+h2 <- 1 - ink.rf1.fit$test$votes[31:40, 4]
+DET(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[11:20, 5]
+h2 <- 1 - ink.rf1.fit$test$votes[41:50, 3]
+DET(LR.H1.exp = h1, LR.H2.exp = h2)
+```
+
+ECE
+
+```{r}
+source('ECE.R')
+
+h1 <- ink.rf1.fit$test$votes[1:10, 1]
+h2 <- 1 - ink.rf1.fit$test$votes[1:10, 1]
+ECE(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[21:30, 2]
+h2 <- 1 - ink.rf1.fit$test$votes[21:30, 2]
+ECE(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[41:50, 3]
+h2 <- 1 - ink.rf1.fit$test$votes[41:50, 3]
+ECE(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[31:40, 4]
+h2 <- 1 - ink.rf1.fit$test$votes[31:40, 4]
+ECE(LR.H1.exp = h1, LR.H2.exp = h2)
+
+h1 <- ink.rf1.fit$test$votes[11:20, 5]
+h2 <- 1 - ink.rf1.fit$test$votes[41:50, 3]
+ECE(LR.H1.exp = h1, LR.H2.exp = h2)
+```
