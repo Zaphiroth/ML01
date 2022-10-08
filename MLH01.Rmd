@@ -13,15 +13,156 @@ knitr::opts_chunk$set(
 )
 ```
 
-## R Markdown
+## Environment Variables and Packages
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r}
+options(java.parameters = "-Xmx2048m",
+        stringsAsFactors = FALSE, 
+        encoding = 'UTF-8')
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+suppressPackageStartupMessages({
+  # DM
+  library(zip)
+  library(openxlsx)
+  library(readxl)
+  library(writexl)
+  library(RcppRoll)
+  library(plyr)
+  library(stringi)
+  library(feather)
+  library(RODBC)
+  library(MASS)
+  library(car)
+  library(data.table)
+  library(tidyverse)
+  library(lubridate)
+  # TS
+  library(tseries)
+  library(forecast)
+  library(lmtest)
+  library(FinTS)
+  # DT
+  library(party)
+  library(partykit)
+  library(rpart)
+  # RF
+  library(randomForest)
+})
 ```
+
+## E-commerce Fresh
+
+首先读取数据，并查看每列的数据类型。
+
+```{r}
+fresh.raw <- read_csv('Tseq_Sales.csv')
+
+head(fresh.raw)
+```
+
+因为date列的字符串长度不一致，无法对数据按date列排序，会影响时间序列数据的时间顺序，所以先将其统一为yyyy/mm/dd格式，再进行排序。
+
+```{r}
+fresh.clean <- fresh.raw %>% 
+  separate(date, into = c('year', 'month', 'day'), sep = '/') %>% 
+  mutate(month = stri_pad_left(month, 2, 0), 
+         day = stri_pad_left(day, 2, 0)) %>% 
+  unite('date', year, month, day, sep = '/') %>% 
+  arrange(is_train, date)
+
+head(fresh.clean)
+```
+
+根据is_train划分训练集和测试集。
+
+```{r}
+fresh.train <- filter(fresh.clean, is_train == 0)
+fresh.test <- filter(fresh.clean, is_train == 1)
+```
+
+训练集数据的时间序列图如下，可以看出序列并不平稳。考虑拟合ARIMA模型、残差自回归模型和广义线性模型。
+
+```{r}
+plot(ts(fresh.train$sales), ylab = 'Sales')
+```
+
+# ARIMA模型
+
+对sales数据进行一阶差分，根据时间序列图和ACF图，判断数据一阶差分平稳。同时ADF检验的结果也认为一阶差分数据平稳。
+
+```{r}
+fresh.sta <- fresh.train %>% 
+  mutate(sales_sta = sales - lag(sales)) %>% 
+  filter(!is.na(sales_sta)) %>% 
+  select(date, sales_sta)
+
+plot(ts(fresh.sta$sales_sta), ylab = 'Sales-1st')
+fresh.acf <- acf(fresh.sta$sales_sta, lag.max = 30)
+adf.test(fresh.sta$sales_sta, k = 1)
+```
+
+使用LB统计量对一阶差分平稳数据做白噪声检验，认为数据非白噪声，具有研究价值。
+
+```{r}
+Box.test(fresh.sta$sales_sta, lag = 1, type = 'Ljung-Box')
+```
+
+由ACF图和PACF图，认为数据ACF一阶截尾、PACF拖尾。
+
+```{r}
+fresh.arima.acf <- acf(fresh.sta$sales_sta, lag.max = 30)
+fresh.arima.pacf <- pacf(fresh.sta$sales_sta, lag.max = 30)
+```
+
+因此，拟合ARIMA(0,1,1)模型。
+
+```{r}
+fresh.arima.fit <- arima(fresh.train$sales, order = c(0, 1, 1))
+
+summary(fresh.arima.fit)
+```
+
+对ARIMA(0,1,1)模型的残差序列进行白噪声检验，认为残差序列为白噪声序列，拟合模型显著。
+
+```{r}
+Box.test(fresh.arima.fit$residuals, lag = 1, type = 'Ljung-Box')
+```
+
+对ARIMA(0,1,1)模型的参数进行显著性检验，认为参数显著非零。
+
+```{r}
+CoefTestFunc <- function(object) {
+  coef <- object$coef[object$coef != 0]
+  var.coef <- object$var.coef
+  len <- length(coef)
+  df <- object$nobs - len
+  for (i in 1:len) {
+    t <- coef[i] / sqrt(var.coef[i, i])
+    lower <- ifelse(coef[i] < 0, 1, 0)
+    pt <- pt(t, df = df, lower.tail = lower)
+    print(pt)
+  }
+}
+
+CoefTestFunc(fresh.arima.fit)
+```
+
+在对ARIMA(0,1,1)模型进行预测时，固定第一期的时间序列值，根据模型表达式依次预测将来期的序列值，并将负数的预测值修改为0。
+
+```{r}
+fresh.arima.pred <- mutate(fresh.test, sales_pred = sales[1])
+for (i in 2:nrow(fresh.arima.pred)) {
+  pred <- fresh.arima.pred$sales_pred[i-1]
+  fresh.arima.pred$sales_pred[i] <- ifelse(pred > 0, pred, 0)
+}
+
+head(fresh.arima.pred)
+```
+
+## 残差自回归模型
+
+
+
 
 ## Including Plots
 

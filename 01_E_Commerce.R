@@ -39,8 +39,6 @@ suppressPackageStartupMessages({
   library(rpart)
   # RF
   library(randomForest)
-  # plot
-  library(isotone)
 })
 
 
