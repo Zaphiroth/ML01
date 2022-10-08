@@ -52,6 +52,8 @@ suppressPackageStartupMessages({
 
 ## E-commerce Fresh
 
+建立ARIMA模型需要时间序列数据差分平稳，同时不能为白噪声数据，否则没有分析价值。
+
 首先读取数据，并查看每列的数据类型。
 
 ```{r}
@@ -107,7 +109,7 @@ adf.test(fresh.sta$sales_sta, k = 1)
 Box.test(fresh.sta$sales_sta, lag = 1, type = 'Ljung-Box')
 ```
 
-由ACF图和PACF图，认为数据ACF一阶截尾、PACF拖尾。
+由ACF图和PACF图，认为数据ACF一阶截尾，PACF拖尾。
 
 ```{r}
 fresh.arima.acf <- acf(fresh.sta$sales_sta, lag.max = 30)
@@ -118,7 +120,6 @@ fresh.arima.pacf <- pacf(fresh.sta$sales_sta, lag.max = 30)
 
 ```{r}
 fresh.arima.fit <- arima(fresh.train$sales, order = c(0, 1, 1))
-
 summary(fresh.arima.fit)
 ```
 
@@ -147,7 +148,7 @@ CoefTestFunc <- function(object) {
 CoefTestFunc(fresh.arima.fit)
 ```
 
-在对ARIMA(0,1,1)模型进行预测时，固定第一期的时间序列值，根据模型表达式依次预测将来期的序列值，并将负数的预测值修改为0。
+使用ARIMA(0,1,1)模型对测试集数据进行预测时，固定第一期的时间序列值，根据模型表达式依次预测将来期的序列值，并将负数的预测值修改为0。
 
 ```{r}
 fresh.arima.pred <- mutate(fresh.test, sales_pred = sales[1])
@@ -160,6 +161,102 @@ head(fresh.arima.pred)
 ```
 
 ## 残差自回归模型
+
+从训练数据的时间序列图可以看出，时间序列有明显的先升后降趋势，可以先通过确定性因素分解方法提取序列中主要的确定性信息，再进一步拟合残差自回归模型提取相关信息。
+
+因为数据的时间跨度不够长，无法提取季节效应，所以考虑用时间t的幂函数提取趋势效应。
+
+```{r}
+t <- 1:nrow(fresh.train)
+t2 <- t^2
+
+fresh.lm.fit1 <- lm(fresh.train$sales ~ t + t2)
+summary(fresh.lm.fit1)
+```
+
+然后，拟合关于延迟变量的自回归模型。
+
+```{r}
+fresh.sales1 <- fresh.train$sales[1:(nrow(fresh.train) - 1)]
+fresh.sales2 <- fresh.train$sales[2:nrow(fresh.train)]
+
+fresh.lm.fit2 <- lm(fresh.sales1 ~ fresh.sales2)
+summary(fresh.lm.fit2)
+```
+
+两个趋势拟合模型的拟合效果图。
+
+```{r}
+fresh.lm.fv1 <- ts(fresh.lm.fit1$fitted.values)
+fresh.lm.fv2 <- ts(fresh.lm.fit2$fitted.values, start = 2)
+
+plot(ts(fresh.train$sales))
+lines(fresh.lm.fv1, col = 2)
+lines(fresh.lm.fv2, col = 4)
+```
+
+对第一个确定性趋势进行DW检验，由于DW统计量小于2，且P值极小，说明残差序列高度正相关，需要对残差序列再次进行信息提取。
+
+```{r}
+dwtest(fresh.lm.fit1)
+```
+
+对延迟因变量自相关模型进行Durbin h检验，认为残差序列不存在显著相关，不需要对残差序列进行信息提取。
+
+```{r}
+dwtest(fresh.lm.fit2, order.by = fresh.sales2)
+```
+
+由第一个确定性趋势残差序列的ACF图和PACF图，认为残差序列ACF拖尾，PACF一阶、五阶相关性较高。
+
+```{r}
+fresh.rar.acf <- acf(fresh.lm.fit1$residuals, lag.max = 30)
+fresh.rar.pacf <- pacf(fresh.lm.fit1$residuals, lag.max = 30)
+```
+
+因此，拟合ARIMA((1,5),0,0)模型。
+
+```{r}
+fresh.rar.fit <- arima(fresh.lm.fit1$residuals, 
+                       order = c(5, 0, 0), 
+                       include.mean = FALSE, 
+                       transform.pars = FALSE, 
+                       fixed = c(NA, 0, 0, 0, NA))
+summary(fresh.rar.fit)
+```
+
+对ARIMA((1,5),0,0)模型的残差序列进行白噪声检验，认为残差序列为白噪声序列，拟合模型显著。
+
+```{r}
+Box.test(fresh.rar.fit$residuals, lag = 1, type = 'Ljung-Box')
+```
+
+对ARIMA((1,5),0,0)模型的参数进行显著性检验，认为参数显著非零。
+
+```{r}
+CoefTestFunc(fresh.rar.fit)
+```
+
+使用残差自回归模型对测试集数据进行预测时，固定前五期的时间序列值，根据模型表达式依次预测将来期的序列值，并将负数的预测值修改为0。
+
+```{r}
+fresh.rar.coef1 <- fresh.lm.fit1$coefficients[1]
+fresh.rar.coef2 <- fresh.lm.fit1$coefficients[2]
+fresh.rar.coef3 <- fresh.lm.fit1$coefficients[3]
+
+fresh.rar.pred <- fresh.test %>% 
+  mutate(t = row_number()) %>% 
+  mutate(sales_pred = fresh.rar.coef1 + fresh.rar.coef2 * t + fresh.rar.coef3 * t^2, 
+         sales_pred_ad = ifelse(sales_pred > 0, sales_pred, 0))
+
+head(fresh.rar.pred)
+```
+
+## 广义线性模型
+
+
+
+
 
 
 
