@@ -409,7 +409,6 @@ suppressPackageStartupMessages({
 </div>
 <div id="e-commerce-fresh" class="section level2">
 <h2>E-commerce Fresh</h2>
-<p>建立ARIMA模型需要时间序列数据差分平稳，同时不能为白噪声数据，否则没有分析价值。</p>
 <p>首先读取数据，并查看每列的数据类型。</p>
 <pre class="r"><code>fresh.raw &lt;- read_csv(&#39;Tseq_Sales.csv&#39;)</code></pre>
 <pre><code>## Rows: 552 Columns: 3
@@ -457,6 +456,7 @@ fresh.test &lt;- filter(fresh.clean, is_train == 1)</code></pre>
 </div>
 <div id="arima模型" class="section level1">
 <h1>ARIMA模型</h1>
+<p>建立ARIMA模型需要时间序列数据差分平稳，同时不能为白噪声数据，否则没有分析价值。</p>
 <p>对sales数据进行一阶差分，根据时间序列图和ACF图，判断数据一阶差分平稳。同时ADF检验的结果也认为一阶差分数据平稳。</p>
 <pre class="r"><code>fresh.sta &lt;- fresh.train %&gt;% 
   mutate(sales_sta = sales - lag(sales)) %&gt;% 

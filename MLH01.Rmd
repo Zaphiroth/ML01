@@ -54,8 +54,6 @@ suppressPackageStartupMessages({
 
 ## E-commerce Fresh
 
-建立ARIMA模型需要时间序列数据差分平稳，同时不能为白噪声数据，否则没有分析价值。
-
 首先读取数据，并查看每列的数据类型。
 
 ```{r}
@@ -91,6 +89,8 @@ plot(ts(fresh.train$sales), ylab = 'Sales')
 ```
 
 # ARIMA模型
+
+建立ARIMA模型需要时间序列数据差分平稳，同时不能为白噪声数据，否则没有分析价值。
 
 对sales数据进行一阶差分，根据时间序列图和ACF图，判断数据一阶差分平稳。同时ADF检验的结果也认为一阶差分数据平稳。
 
