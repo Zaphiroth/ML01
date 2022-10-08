@@ -7,9 +7,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-	echo = TRUE,
-	message = TRUE,
-	warning = FALSE
+  echo = TRUE,
+  message = TRUE,
+  warning = FALSE
 )
 ```
 
@@ -160,6 +160,13 @@ for (i in 2:nrow(fresh.arima.pred)) {
 head(fresh.arima.pred)
 ```
 
+预测效果如下：
+
+```{r}
+plot(ts(fresh.arima.pred$sales), ylab = 'Sales')
+lines(ts(fresh.arima.pred$sales_pred), col = 2)
+```
+
 ## 残差自回归模型
 
 从训练数据的时间序列图可以看出，时间序列有明显的先升后降趋势，可以先通过确定性因素分解方法提取序列中主要的确定性信息，再进一步拟合残差自回归模型提取相关信息。
@@ -169,7 +176,6 @@ head(fresh.arima.pred)
 ```{r}
 t <- 1:nrow(fresh.train)
 t2 <- t^2
-
 fresh.lm.fit1 <- lm(fresh.train$sales ~ t + t2)
 summary(fresh.lm.fit1)
 ```
@@ -179,7 +185,6 @@ summary(fresh.lm.fit1)
 ```{r}
 fresh.sales1 <- fresh.train$sales[1:(nrow(fresh.train) - 1)]
 fresh.sales2 <- fresh.train$sales[2:nrow(fresh.train)]
-
 fresh.lm.fit2 <- lm(fresh.sales1 ~ fresh.sales2)
 summary(fresh.lm.fit2)
 ```
@@ -189,7 +194,6 @@ summary(fresh.lm.fit2)
 ```{r}
 fresh.lm.fv1 <- ts(fresh.lm.fit1$fitted.values)
 fresh.lm.fv2 <- ts(fresh.lm.fit2$fitted.values, start = 2)
-
 plot(ts(fresh.train$sales))
 lines(fresh.lm.fv1, col = 2)
 lines(fresh.lm.fv2, col = 4)
@@ -252,21 +256,128 @@ fresh.rar.pred <- fresh.test %>%
 head(fresh.rar.pred)
 ```
 
-## 广义线性模型
+预测效果如下：
 
-
-
-
-
-
-
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+plot(ts(fresh.rar.pred$sales), ylab = 'Sales')
+lines(ts(fresh.rar.pred$sales_pred_ad), col = 2)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## 广义线性模型
+
+假设数据满足Gauss假定，则可以拟合关于时间t的线性回归模型。
+
+```{r}
+t <- 1:nrow(fresh.train)
+t2 <- t^2
+t3 <- t^3
+t4 <- t^4
+t5 <- t^5
+fresh.glm.fit <- lm(fresh.train$sales ~ t + t2 + t3 + t4 + t5, family = gaussian())
+summary(fresh.glm.fit)
+```
+
+可以看出拟合模型显著，且参数显著非零。拟合效果如下：
+
+```{r}
+plot(fresh.train$sales, type = 'p', pch = 20)
+lines(fresh.glm.fit$fitted.values, col = 2)
+```
+
+使用线性回归模型对测试集数据进行预测。
+
+```{r}
+GLMPredFunc <- function(t, object) {
+  coef <- object$coefficients
+  pred <- sum(c(1, t, t^2, t^3, t^4, t^5) * coef)
+  return(pred)
+}
+
+fresh.glm.pred <- fresh.test %>% 
+  mutate(t = row_number(), 
+         sales_pred = sapply(t, GLMPredFunc, object = fresh.glm.fit))
+
+head(fresh.glm.pred)
+```
+
+预测效果如下：
+
+```{r}
+plot(ts(fresh.glm.pred$sales), ylab = 'Sales')
+lines(ts(fresh.glm.pred$sales_pred), col = 2)
+```
+
+# MSE和柔性的关系
+
+计算三种模型训练结果的MSE和柔性。
+
+```{r}
+fresh.arima.train <- mutate(fresh.train, sales_pred = sales[1])
+for (i in 2:nrow(fresh.arima.train)) {
+  pred <- fresh.arima.train$sales_pred[i-1]
+  fresh.arima.train$sales_pred[i] <- ifelse(pred > 0, pred, 0)
+}
+
+fresh.rar.train <- fresh.train %>% 
+  mutate(t = row_number()) %>% 
+  mutate(sales_pred = fresh.rar.coef1 + fresh.rar.coef2 * t + fresh.rar.coef3 * t^2, 
+         sales_pred_ad = ifelse(sales_pred > 0, sales_pred, 0))
+
+fresh.glm.train <- fresh.train %>% 
+  mutate(t = row_number(), 
+         sales_pred = sapply(t, GLMPredFunc, object = fresh.glm.fit))
+
+fresh.arima.train.mse <- mean((fresh.arima.train$sales - fresh.arima.train$sales_pred)^2)
+fresh.rar.train.mse <- mean((fresh.rar.train$sales - fresh.rar.train$sales_pred_ad)^2)
+fresh.glm.train.mse <- mean((fresh.glm.train$sales - fresh.glm.train$sales_pred)^2)
+```
+
+计算三种模型预测结果的MSE和柔性。
+
+```{r}
+fresh.arima.test.mse <- mean((fresh.arima.pred$sales - fresh.arima.pred$sales_pred)^2)
+fresh.rar.test.mse <- mean((fresh.rar.pred$sales - fresh.rar.pred$sales_pred_ad)^2)
+fresh.glm.test.mse <- mean((fresh.glm.pred$sales - fresh.glm.pred$sales_pred)^2)
+```
+
+训练数据和测试数据的MSE随模型柔性变化的图为：
+
+```{r}
+mse.flex <- data.frame(flexibility = c(length(fresh.arima.fit$coef), 
+                                       length(fresh.rar.fit$coef), 
+                                       length(fresh.glm.fit$coefficients)), 
+                       train = c(fresh.arima.train.mse, 
+                                 fresh.rar.train.mse, 
+                                 fresh.glm.train.mse), 
+                       test = c(fresh.arima.test.mse, 
+                                fresh.rar.test.mse, 
+                                fresh.glm.test.mse))
+mse.flex
+
+plot(0: 8, seq(0, 8000, 1000), type = 'n')
+points(x = mse.flex$flexibility, y = mse.flex$train, type = 'p', pch = 4)
+lines(x = mse.flex$flexibility, y = mse.flex$train, col = 2)
+points(x = mse.flex$flexibility, y = mse.flex$test, type = 'p', pch = 4)
+lines(x = mse.flex$flexibility, y = mse.flex$test, col = 4)
+legend('right', c('train', 'test'), col = c(2, 4), lty=c(1, 1), bty="n")
+```
+
+因为测试数据与训练数据差别过于巨大，导致残差自回归模型和线性回归模型在测试集数据上的表现极差；虽然ARIMA模型柔性最低，训练误差最大，但在测试数据上有最好的表现。
+
+## Ink
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
