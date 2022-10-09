@@ -47,8 +47,8 @@ ECE = function(LR.H1.exp, LR.H2.exp) {
     col = c("black","red","blue")
     lty = c(3,1,2)
     if (x %in% c(2,3)) {par(new=TRUE)}
-    plot(log10(a.priori.odds), ECE, xlim=c(-2,2), ylim=c(0,1), type="l", col
-         =col[x], lty=lty[x], xlab = expression(paste("prior log"[10],"(Odds)")))
+    plot(log10(a.priori.odds), ECE, xlim=c(-2,2), ylim=c(0,2), type="l", 
+         col=col[x], lty=lty[x], xlab = expression(paste("prior log"[10],"(Odds)")))
     abline(v=0, lty=2, col="gray")
     legend("topleft", c("null method with LR=1", "experimental LR", "calibrated LR after PAV"), 
            col=col, lty=lty, bty="n", cex=0.5)
