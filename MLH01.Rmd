@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
 )
 ```
 
-## Environment Variables and Packages
+# Environment Variables and Packages
 
 ```{r}
 options(java.parameters = "-Xmx2048m",
@@ -52,7 +52,7 @@ suppressPackageStartupMessages({
 })
 ```
 
-## E-commerce Fresh
+# E-commerce Fresh
 
 首先读取数据，并查看每列的数据类型。
 
@@ -88,7 +88,7 @@ fresh.test <- filter(fresh.clean, is_train == 1)
 plot(ts(fresh.train$sales), ylab = 'Sales')
 ```
 
-# ARIMA模型
+### ARIMA模型
 
 建立ARIMA模型需要时间序列数据差分平稳，同时不能为白噪声数据，否则没有分析价值。
 
@@ -169,7 +169,7 @@ plot(ts(fresh.arima.pred$sales), ylab = 'Sales')
 lines(ts(fresh.arima.pred$sales_pred), col = 2)
 ```
 
-## 残差自回归模型
+### 残差自回归模型
 
 从训练数据的时间序列图可以看出，时间序列有明显的先升后降趋势，可以先通过确定性因素分解方法提取序列中主要的确定性信息，再进一步拟合残差自回归模型提取相关信息。
 
@@ -265,7 +265,7 @@ plot(ts(fresh.rar.pred$sales), ylab = 'Sales')
 lines(ts(fresh.rar.pred$sales_pred_ad), col = 2)
 ```
 
-## 广义线性模型
+### 广义线性模型
 
 假设数据满足Gauss假定，则可以拟合关于时间t的线性回归模型。
 
@@ -309,7 +309,7 @@ plot(ts(fresh.glm.pred$sales), ylab = 'Sales')
 lines(ts(fresh.glm.pred$sales_pred), col = 2)
 ```
 
-# MSE和柔性的关系
+### MSE和柔性的关系
 
 计算三种模型训练结果的MSE和柔性。
 
@@ -364,7 +364,7 @@ legend('right', c('train', 'test'), col = c(2, 4), lty=c(1, 1), bty="n")
 
 由于测试数据与训练数据差别过于巨大，导致残差自回归模型和广义线性回归模型在测试集数据上的表现极差；虽然ARIMA模型柔性最低，训练误差最大，但在测试数据上有最好的表现。
 
-# 拟合序列图
+### 拟合序列图
 
 ```{r}
 plot(fresh.train$sales, xlab = 'Time', ylab = 'Sales', col = 1)
@@ -374,9 +374,9 @@ lines(fresh.glm.train$sales_pred, col = 4)
 legend('topright', c('ARIMA', 'RAR', 'GLM'), col = c(2, 3, 4), lty=c(1, 1, 1), bty="n")
 ```
 
-## Ink
+# Ink
 
-# 读取数据
+### 读取数据
 
 将数据集分为训练数据（瓶装）、训练数据（简装）和测试数据三部分，添加类别标签。
 
@@ -411,7 +411,7 @@ ink.test <- ink.raw %>%
 head(ink.test)
 ```
 
-# 模型选择
+### 模型选择
 
 经过对逻辑回归、决策树、随机森林等分类模型的计算和比较，选择训练效果和预测效果最好的随机森林分类模型。
 
@@ -419,7 +419,7 @@ head(ink.test)
 
 选择mtry范围为1-3（数据中共有3个变量），ntree范围为100-1000（间隔100），两两组合成30组超参数对，每组训练10个随机森林模型，比较各个模型的错误率。
 
-# 确定训练数据（瓶装）的超参数
+### 确定训练数据（瓶装）的超参数
 
 首先利用训练数据（瓶装）训练随机森林分类模型，结果显示mtry=1，ntree=100时，模型已经有比较低的训练错误率和测试错误率。
 
@@ -460,7 +460,7 @@ ink.rf1.fit <- randomForest(label ~ x + y + z, data = ink.train1,
 ink.rf1.fit
 ```
 
-# 确定训练数据（简装）的超参数
+### 确定训练数据（简装）的超参数
 
 下面利用训练数据（简装）训练随机森林分类模型，结果显示mtry=2，ntree=100时，模型已经有比较低的训练错误率和测试错误率。
 
@@ -501,7 +501,7 @@ ink.rf2.fit <- randomForest(label ~ x + y + z, data = ink.train1,
 ink.rf2.fit
 ```
 
-# 单一墨迹误差
+### 单一墨迹误差
 
 利用训练数据（瓶装）训练的随机森林分类模型在测试数据上的正确率优于利用训练数据（简装）训练的随机森林分类模型。下面分析瓶装模型的误差。
 
@@ -575,7 +575,7 @@ mean((ink.rf1.fit$votes - ink.train1.label)^2)
 mean((ink.rf1.fit$votes - ink.test1.label)^2)
 ```
 
-# 四种图
+### 四种图
 
 Histogram
 
